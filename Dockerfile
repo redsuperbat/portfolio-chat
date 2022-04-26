@@ -12,6 +12,6 @@ FROM alpine:3.14
 
 WORKDIR /app/prod
 
-COPY --from=compiler /app/build/main .
+COPY --from=compiler /app/build/portfolio-chat .
 
-ENTRYPOINT ["./main"]
+ENTRYPOINT ["./portfolio-chat"]
