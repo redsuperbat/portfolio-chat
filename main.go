@@ -2,16 +2,23 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/websocket/v2"
+	"github.com/google/uuid"
+
+	"rsb.asuscomm.com/portfolio-chat/aggregates"
 	"rsb.asuscomm.com/portfolio-chat/consuming"
 	"rsb.asuscomm.com/portfolio-chat/events"
 	"rsb.asuscomm.com/portfolio-chat/producing"
 )
+
+type MsgChan = chan []byte
 
 func handleEvent[T events.Event](c *fiber.Ctx, sendEvent func(value []byte) error) error {
 	var event T
@@ -39,13 +46,50 @@ func handleEvent[T events.Event](c *fiber.Ctx, sendEvent func(value []byte) erro
 	return c.Status(200).JSON(event)
 }
 
+var allowedEvents map[string]bool = map[string]bool{
+	"ChatMessageSentEvent":    true,
+	"ChatMessageStartedEvent": true,
+	"ChatMessageStoppedEvent": true,
+}
+
 func main() {
 
-	sendEvent, close := producing.NewConn()
-	defer close()
+	sendEvent, closeProducer := producing.NewConn()
+	defer closeProducer()
 	app := fiber.New()
 	app.Use(logger.New())
 	app.Use(cors.New())
+
+	ephemeralChannel := make(MsgChan)
+	startEphCons, stopEphCons := consuming.NewConsumer(ephemeralChannel, uuid.NewString()+time.Now().String())
+	log.Println("Starting ephemeral consumer...")
+	go startEphCons()
+	defer stopEphCons()
+
+	chats := aggregates.Chats{}
+
+	go func() {
+		for val := range ephemeralChannel {
+			event, err := events.Unmarshal(val)
+			if err != nil {
+				log.Printf("Unable to Unmarshal event %v because of %s", val, err.Error())
+				continue
+			}
+			chats.On(event)
+		}
+	}()
+
+	app.Get("/chats/:id", func(c *fiber.Ctx) error {
+		id := c.Params("id")
+		chat := chats.Get(id)
+		if chat == nil {
+			return c.Status(404).JSON(fiber.Map{
+				"message": fmt.Sprint("Chat with id ", id, " not found"),
+				"code":    404,
+			})
+		}
+		return c.Status(200).JSON(chat)
+	})
 
 	app.Post("/start-chat", func(c *fiber.Ctx) error {
 		return handleEvent[*events.ChatStartedEvent](c, sendEvent)
@@ -63,6 +107,24 @@ func main() {
 		return handleEvent[*events.ChatMessageStoppedEvent](c, sendEvent)
 	})
 
+	// ##### --------------- #####
+	// ##### Websocket Stuff #####
+	// ##### --------------- #####
+
+	staticChan := make(MsgChan)
+	wsChans := map[string]MsgChan{}
+	startStaticCons, stopStaticCons := consuming.NewConsumer(staticChan, "ChatMessageConsumer")
+	go startStaticCons()
+	defer stopStaticCons()
+
+	go func() {
+		for val := range staticChan {
+			for _, v := range wsChans {
+				v <- val
+			}
+		}
+	}()
+
 	app.Use("/chat-room", func(c *fiber.Ctx) error {
 		// IsWebSocketUpgrade returns true if the client
 		// requested upgrade to the WebSocket protocol.
@@ -74,43 +136,48 @@ func main() {
 	})
 
 	app.Get("/chat-room/:id", websocket.New(func(c *websocket.Conn) {
-		// c.Locals is added to the *websocket.Conn
-		log.Println("Allowed:", c.Locals("allowed")) // true
-		log.Println("id param:", c.Params("id"))     // 123
-		channel := make(chan []byte)
-		start, stop := consuming.NewConsumer(channel)
-		go start()
+		log.Println("Allowed:", c.Locals("allowed"))
 
-		c.SetCloseHandler(func(code int, text string) error {
-			return stop()
+		chatId := c.Params("id")
+		log.Println("Id param:", chatId)
+		senderId := c.Query("senderId")
+		log.Println("Sender Id query:", senderId)
+
+		wsChan := make(chan []byte)
+		wsChans[senderId] = wsChan
+
+		c.Conn.SetCloseHandler(func(code int, text string) error {
+			fmt.Printf("Client %s disconnected from chat %s", senderId, chatId)
+			close(wsChan)
+			delete(wsChans, senderId)
+			return nil
 		})
 
-		allowedEvents := map[string]bool{
-			"ChatMessageSentEvent":    true,
-			"ChatMessageStartedEvent": true,
-			"ChatMessageStoppedEvent": true,
-		}
-
-		for msg := range channel {
-			var msgMap fiber.Map
-			if err := json.Unmarshal(msg, &msgMap); err != nil {
-				log.Println(err.Error())
-				break
+		go func() {
+			for msg := range wsChan {
+				var msgMap fiber.Map
+				if err := json.Unmarshal(msg, &msgMap); err != nil {
+					log.Println(err.Error())
+					break
+				}
+				if msgMap["chatId"] != c.Params("id") {
+					continue
+				}
+				eventType := msgMap["eventType"].(string)
+				if !allowedEvents[eventType] {
+					continue
+				}
+				log.Printf("recv: %s", msgMap["eventType"])
+				if err := c.WriteJSON(msgMap); err != nil {
+					log.Println("write:", err)
+					break
+				}
 			}
+		}()
 
-			if msgMap["chatId"] != c.Params("id") {
-				continue
-			}
-
-			eventType := msgMap["eventType"].(string)
-
-			if !allowedEvents[eventType] {
-				continue
-			}
-
-			log.Printf("recv: %s", msgMap["eventType"])
-			if err := c.WriteJSON(msgMap); err != nil {
-				log.Println("write:", err)
+		for {
+			if _, _, err := c.ReadMessage(); err != nil {
+				log.Println("read:", err)
 				break
 			}
 		}

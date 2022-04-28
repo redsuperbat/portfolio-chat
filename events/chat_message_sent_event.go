@@ -2,15 +2,18 @@ package events
 
 import (
 	"errors"
+	"time"
 
 	"github.com/google/uuid"
 )
 
 type ChatMessageSentEvent struct {
-	EventType string `json:"eventType"`
-	ChatId    string `json:"chatId"`
-	Content   string `json:"content"`
-	Sender    string `json:"sender"`
+	EventType string    `json:"eventType"`
+	ChatId    string    `json:"chatId"`
+	Content   string    `json:"content"`
+	Sender    string    `json:"sender"`
+	SentAt    time.Time `json:"sentAt"`
+	MessageId string    `json:"messageId"`
 }
 
 func (c *ChatMessageSentEvent) Valid() error {

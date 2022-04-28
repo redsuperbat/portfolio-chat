@@ -6,14 +6,13 @@ import (
 	"os"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/segmentio/kafka-go"
 	"rsb.asuscomm.com/portfolio-chat/constants"
 )
 
 type ConsumerFunc = func(kafka.Message) error
 
-func NewConsumer(c chan []byte) (func(), func() error) {
+func NewConsumer(c chan []byte, groupId string) (func(), func() error) {
 	// make a new reader that consumes from topic-A
 	kafkaBroker := os.Getenv(constants.KAFKA_BROKER)
 	if kafkaBroker == "" {
@@ -27,7 +26,7 @@ func NewConsumer(c chan []byte) (func(), func() error) {
 
 	r := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:     []string{kafkaBroker},
-		GroupID:     uuid.NewString(),
+		GroupID:     groupId,
 		Topic:       kafkaTopic,
 		MinBytes:    10e3, // 10KB
 		MaxBytes:    10e6, // 10MB
@@ -47,7 +46,7 @@ func NewConsumer(c chan []byte) (func(), func() error) {
 				c <- m.Value
 			}
 		}, func() error {
-			log.Panicln("Closing connection to kafka")
+			log.Println("Closing connection to kafka...")
 			return r.Close()
 		}
 }
