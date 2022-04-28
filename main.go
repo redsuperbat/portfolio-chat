@@ -142,7 +142,7 @@ func main() {
 		log.Println("Id param:", chatId)
 		senderId := c.Query("senderId")
 		log.Println("Sender Id query:", senderId)
-
+		log.Printf("Client connected! Number of clients: %v", len(wsChans))
 		wsChan := make(chan []byte)
 		wsChans[senderId] = wsChan
 
@@ -160,7 +160,7 @@ func main() {
 				if !allowedEvents[eventType] {
 					continue
 				}
-				log.Printf("recv: %s", msgMap["eventType"])
+				log.Printf("Sending %s to chat %s", msgMap["eventType"], chatId)
 				if err := c.WriteJSON(msgMap); err != nil {
 					log.Println("write:", err)
 					break
@@ -171,7 +171,7 @@ func main() {
 		for {
 			if _, _, err := c.ReadMessage(); err != nil {
 				log.Println("read:", err)
-				fmt.Printf("Client %s disconnected from chat %s", senderId, chatId)
+				fmt.Printf("Client %s disconnected from chat %s. Number of clients: %v", senderId, chatId, len(wsChans))
 				close(wsChan)
 				delete(wsChans, senderId)
 				break
