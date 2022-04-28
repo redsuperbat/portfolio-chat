@@ -146,13 +146,6 @@ func main() {
 		wsChan := make(chan []byte)
 		wsChans[senderId] = wsChan
 
-		c.Conn.SetCloseHandler(func(code int, text string) error {
-			fmt.Printf("Client %s disconnected from chat %s", senderId, chatId)
-			close(wsChan)
-			delete(wsChans, senderId)
-			return nil
-		})
-
 		go func() {
 			for msg := range wsChan {
 				var msgMap fiber.Map
@@ -178,6 +171,9 @@ func main() {
 		for {
 			if _, _, err := c.ReadMessage(); err != nil {
 				log.Println("read:", err)
+				fmt.Printf("Client %s disconnected from chat %s", senderId, chatId)
+				close(wsChan)
+				delete(wsChans, senderId)
 				break
 			}
 		}
