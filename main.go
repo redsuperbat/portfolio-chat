@@ -170,9 +170,11 @@ func main() {
 
 		for {
 			if _, _, err := c.ReadMessage(); err != nil {
+				log.Printf("Client %s disconnected from chat %s. Number of clients: %v\n", senderId, chatId, len(wsChans))
 				log.Println("read:", err)
-				fmt.Printf("Client %s disconnected from chat %s. Number of clients: %v", senderId, chatId, len(wsChans))
+				log.Println("Closing channel")
 				close(wsChan)
+				log.Println("Deallocating resources for that channel")
 				delete(wsChans, senderId)
 				break
 			}
