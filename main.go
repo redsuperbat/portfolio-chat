@@ -18,7 +18,7 @@ import (
 	"rsb.asuscomm.com/portfolio-chat/producing"
 )
 
-type MsgChan = chan []byte
+type ByteChannel = chan []byte
 
 func handleEvent[T events.Event](c *fiber.Ctx, sendEvent func(value []byte) error) error {
 	var event T
@@ -60,9 +60,8 @@ func main() {
 	app.Use(logger.New())
 	app.Use(cors.New())
 
-	ephemeralChannel := make(MsgChan)
+	ephemeralChannel := make(ByteChannel)
 	startEphCons, stopEphCons := consuming.NewConsumer(ephemeralChannel, uuid.NewString()+time.Now().String())
-	log.Println("Starting ephemeral consumer...")
 	go startEphCons()
 	defer stopEphCons()
 
@@ -111,8 +110,8 @@ func main() {
 	// ##### Websocket Stuff #####
 	// ##### --------------- #####
 
-	staticChan := make(MsgChan)
-	wsChans := map[string]MsgChan{}
+	staticChan := make(ByteChannel)
+	wsChans := make(map[string]ByteChannel)
 	startStaticCons, stopStaticCons := consuming.NewConsumer(staticChan, "ChatMessageConsumer")
 	go startStaticCons()
 	defer stopStaticCons()
@@ -137,14 +136,34 @@ func main() {
 
 	app.Get("/chat-room/:id", websocket.New(func(c *websocket.Conn) {
 		log.Println("Allowed:", c.Locals("allowed"))
-
 		chatId := c.Params("id")
+
+		if _, err := uuid.Parse(chatId); err != nil {
+			log.Println("Invalid chat id, closing websocket connection.")
+			err := c.Close()
+			if err != nil {
+				log.Printf("Connection closed with error %s", err.Error())
+			}
+			return
+		}
+
 		log.Println("Id param:", chatId)
 		senderId := c.Query("senderId")
+
+		if _, err := uuid.Parse(senderId); err != nil {
+			log.Println("Invalid sender id, closing websocket connection.")
+			err := c.Close()
+			if err != nil {
+				log.Printf("Connection closed with error %s", err.Error())
+			}
+			return
+		}
+
 		log.Println("Sender Id query:", senderId)
-		log.Printf("Client connected! Number of clients: %v", len(wsChans))
-		wsChan := make(chan []byte)
+		wsChan := make(ByteChannel)
 		wsChans[senderId] = wsChan
+
+		log.Printf("Client connected! Number of clients: %v", len(wsChans))
 
 		go func() {
 			for msg := range wsChan {
@@ -170,12 +189,12 @@ func main() {
 
 		for {
 			if _, _, err := c.ReadMessage(); err != nil {
-				log.Printf("Client %s disconnected from chat %s. Number of clients: %v\n", senderId, chatId, len(wsChans))
 				log.Println("read:", err)
 				log.Println("Closing channel")
 				close(wsChan)
 				log.Println("Deallocating resources for that channel")
 				delete(wsChans, senderId)
+				log.Printf("Client %s disconnected from chat %s. Number of clients: %v\n", senderId, chatId, len(wsChans))
 				break
 			}
 		}

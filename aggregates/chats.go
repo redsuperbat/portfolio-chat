@@ -18,7 +18,7 @@ type Chat struct {
 	Messages []*Message `json:"messages"`
 }
 
-// Patient aggregate.
+// Chats aggregate.
 type Chats map[string]*Chat
 
 func (c *Chats) On(event events.Event) {
