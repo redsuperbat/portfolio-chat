@@ -125,6 +125,7 @@ func main() {
 	}()
 
 	app.Use("/chat-room", func(c *fiber.Ctx) error {
+
 		// IsWebSocketUpgrade returns true if the client
 		// requested upgrade to the WebSocket protocol.
 		if websocket.IsWebSocketUpgrade(c) {
@@ -139,23 +140,17 @@ func main() {
 		chatId := c.Params("id")
 
 		if _, err := uuid.Parse(chatId); err != nil {
-			log.Println("Invalid chat id, closing websocket connection.")
-			err := c.Close()
-			if err != nil {
-				log.Printf("Connection closed with error %s", err.Error())
-			}
+			log.Printf("Invalid chat id %s", chatId)
+			c.Close()
 			return
 		}
-
-		log.Println("Id param:", chatId)
 		senderId := c.Query("senderId")
 
+		log.Println("Id param:", chatId)
+
 		if _, err := uuid.Parse(senderId); err != nil {
-			log.Println("Invalid sender id, closing websocket connection.")
-			err := c.Close()
-			if err != nil {
-				log.Printf("Connection closed with error %s", err.Error())
-			}
+			log.Printf("Invalid sender id %s", senderId)
+			c.Close()
 			return
 		}
 
@@ -179,7 +174,7 @@ func main() {
 				if !allowedEvents[eventType] {
 					continue
 				}
-				log.Printf("Sending %s to chat %s", msgMap["eventType"], chatId)
+				log.Printf("Sending %s to client %s", msgMap["eventType"], senderId)
 				if err := c.WriteJSON(msgMap); err != nil {
 					log.Println("write:", err)
 					break
