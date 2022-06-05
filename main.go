@@ -20,30 +20,30 @@ import (
 
 type ByteChannel = chan []byte
 
-func handleEvent[T events.Event](c *fiber.Ctx, sendEvent func(value []byte) error) error {
+func errResp(code int, msg string) *fiber.Map {
+	return &fiber.Map{
+		"message": msg,
+		"code":    code,
+	}
+}
+
+func dispatchCommand(c *fiber.Ctx, sendEvent func(value []byte) error) error {
+	if err := sendEvent(c.Body()); err != nil {
+		return c.Status(500).JSON(errResp(500, err.Error()))
+	}
+	return c.SendStatus(204)
+}
+
+func validateCommand[T events.Event](c *fiber.Ctx) (error, T) {
 	var event T
 	if err := c.BodyParser(&event); err != nil {
-		return c.Status(400).JSON(&fiber.Map{
-			"message": "Invalid command",
-			"code":    400,
-		})
+		return c.Status(400).JSON(errResp(400, "Invalid Command")), event
 	}
 
 	if err := event.Valid(); err != nil {
-		return c.Status(400).JSON(&fiber.Map{
-			"message": err.Error(),
-			"code":    400,
-		})
+		return c.Status(400).JSON(errResp(400, err.Error())), event
 	}
-
-	if err := sendEvent(c.Body()); err != nil {
-		return c.Status(500).JSON(&fiber.Map{
-			"message": err.Error(),
-			"code":    500,
-		})
-	}
-
-	return c.Status(200).JSON(event)
+	return nil, event
 }
 
 var allowedEvents map[string]bool = map[string]bool{
@@ -74,6 +74,7 @@ func main() {
 				log.Printf("Unable to Unmarshal event %v because of %s", val, err.Error())
 				continue
 			}
+			log.Printf("Handling event %s", event.Type())
 			chats.On(event)
 		}
 	}()
@@ -81,29 +82,88 @@ func main() {
 	app.Get("/chats/:id", func(c *fiber.Ctx) error {
 		id := c.Params("id")
 		chat := chats.Get(id)
+
 		if chat == nil {
-			return c.Status(404).JSON(fiber.Map{
-				"message": fmt.Sprint("Chat with id ", id, " not found"),
-				"code":    404,
-			})
+			errMsg := fmt.Sprint("Chat with id ", id, " not found")
+			return c.Status(404).JSON(errResp(404, errMsg))
 		}
+
 		return c.Status(200).JSON(chat)
 	})
 
 	app.Post("/start-chat", func(c *fiber.Ctx) error {
-		return handleEvent[*events.ChatStartedEvent](c, sendEvent)
+		var StartChatDto struct {
+			ChosenName string `json:"chosenName"`
+		}
+		c.BodyParser(&StartChatDto)
+		if chats.HasName(StartChatDto.ChosenName) {
+			return c.Status(400).JSON(errResp(400, "Name taken"))
+		}
+		chatId := uuid.NewString()
+		senderId := uuid.NewString()
+		chatStartedEvent := &events.ChatStartedEvent{
+			ChatId:    chatId,
+			EventType: "ChatStartedEvent",
+		}
+		nameChosenEvent := &events.NameChosenEvent{
+			ChatId:     chatId,
+			SenderId:   senderId,
+			EventType:  "NameChosenEvent",
+			ChosenName: StartChatDto.ChosenName,
+		}
+		for _, val := range []events.Event{chatStartedEvent, nameChosenEvent} {
+			bytes, err := val.ToBytes()
+			if err != nil {
+				return c.SendStatus(500)
+			}
+			sendEvent(bytes)
+		}
+		return c.Status(201).JSON(&fiber.Map{
+			"chatId":   chatId,
+			"senderId": senderId,
+		})
 	})
 
 	app.Post("/send-chat-message", func(c *fiber.Ctx) error {
-		return handleEvent[*events.ChatMessageSentEvent](c, sendEvent)
+		var SendChatMessageDto struct {
+			ChatId   string    `json:"chatId"`
+			Content  string    `json:"content"`
+			SenderId string    `json:"senderId"`
+			SentAt   time.Time `json:"sentAt"`
+		}
+		c.BodyParser(&SendChatMessageDto)
+
+		chatMessageSentEvent := &events.ChatMessageSentEvent{
+			EventType: "ChatMessageSentEvent",
+			ChatId:    SendChatMessageDto.ChatId,
+			Content:   SendChatMessageDto.Content,
+			SentAt:    SendChatMessageDto.SentAt,
+			MessageId: uuid.NewString(),
+			SenderId:  SendChatMessageDto.SenderId,
+		}
+		bytes, err := chatMessageSentEvent.ToBytes()
+		if err != nil {
+			return c.SendStatus(500)
+		}
+		err = sendEvent(bytes)
+		if err != nil {
+			return c.SendStatus(500)
+		}
+		return c.SendStatus(201)
 	})
 
 	app.Post("/start-typing", func(c *fiber.Ctx) error {
-		return handleEvent[*events.ChatMessageStartedEvent](c, sendEvent)
+		if err, _ := validateCommand[*events.ChatStartedEvent](c); err != nil {
+			return err
+		}
+		return dispatchCommand(c, sendEvent)
 	})
 
 	app.Post("/stop-typing", func(c *fiber.Ctx) error {
-		return handleEvent[*events.ChatMessageStoppedEvent](c, sendEvent)
+		if err, _ := validateCommand[*events.ChatStartedEvent](c); err != nil {
+			return err
+		}
+		return dispatchCommand(c, sendEvent)
 	})
 
 	// ##### --------------- #####

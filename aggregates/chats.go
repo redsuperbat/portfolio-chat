@@ -7,15 +7,17 @@ import (
 )
 
 type Message struct {
-	Content string    `json:"content"`
-	Sender  string    `json:"sender"`
-	Id      string    `json:"messageId"`
-	SentAt  time.Time `json:"sentAt"`
+	Content  string    `json:"content"`
+	SenderId string    `json:"sender"`
+	Id       string    `json:"messageId"`
+	SentAt   time.Time `json:"sentAt"`
 }
 
 type Chat struct {
-	Id       string     `json:"chatId"`
-	Messages []*Message `json:"messages"`
+	Id         string     `json:"chatId"`
+	SenderName string     `json:"senderName"`
+	SenderId   string     `json:"senderId"`
+	Messages   []*Message `json:"messages"`
 }
 
 // Chats aggregate.
@@ -30,10 +32,10 @@ func (c *Chats) On(event events.Event) {
 		}
 
 		msg := &Message{
-			Content: e.Content,
-			Sender:  e.Sender,
-			Id:      e.MessageId,
-			SentAt:  e.SentAt,
+			Content:  e.Content,
+			SenderId: e.SenderId,
+			Id:       e.MessageId,
+			SentAt:   e.SentAt,
 		}
 		chat.Messages = append(chat.Messages, msg)
 
@@ -44,6 +46,17 @@ func (c *Chats) On(event events.Event) {
 			Messages: messages,
 		}
 		c.Set(chat)
+	case *events.NameChosenEvent:
+		event, ok := event.(*events.NameChosenEvent)
+		if !ok {
+			return
+		}
+		chat := c.Get(event.ChatId)
+		if chat == nil {
+			return
+		}
+		chat.SenderName = event.ChosenName
+		chat.SenderId = event.SenderId
 	}
 }
 
@@ -58,12 +71,15 @@ func (c Chats) Set(chat *Chat) {
 	c[chat.Id] = chat
 }
 
-func NewFromEvents(events []events.Event) *Chats {
-	p := &Chats{}
+func (c Chats) Has(chatId string) bool {
+	return c[chatId] != nil
+}
 
-	for _, event := range events {
-		p.On(event)
+func (c Chats) HasName(name string) bool {
+	for _, val := range c {
+		if val.SenderName == name {
+			return true
+		}
 	}
-
-	return p
+	return false
 }

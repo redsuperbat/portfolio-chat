@@ -1,6 +1,7 @@
 package events
 
 import (
+	"encoding/json"
 	"errors"
 
 	"github.com/google/uuid"
@@ -9,7 +10,7 @@ import (
 type ChatMessageStartedEvent struct {
 	EventType string `json:"eventType"`
 	ChatId    string `json:"chatId"`
-	Sender    string `json:"sender"`
+	SenderId  string `json:"senderId"`
 }
 
 func (c *ChatMessageStartedEvent) Valid() error {
@@ -20,4 +21,12 @@ func (c *ChatMessageStartedEvent) Valid() error {
 		return errors.New("Invalid chat id")
 	}
 	return nil
+}
+
+func (c *ChatMessageStartedEvent) Type() string {
+	return c.EventType
+}
+
+func (c *ChatMessageStartedEvent) ToBytes() ([]byte, error) {
+	return json.Marshal(c)
 }

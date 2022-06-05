@@ -7,12 +7,14 @@ import (
 	"github.com/google/uuid"
 )
 
-type ChatStartedEvent struct {
-	EventType string `json:"eventType"`
-	ChatId    string `json:"chatId"`
+type NameChosenEvent struct {
+	EventType  string `json:"eventType"`
+	ChatId     string `json:"chatId"`
+	SenderId   string `json:"senderId"`
+	ChosenName string `json:"chosenName"`
 }
 
-func (c *ChatStartedEvent) Valid() error {
+func (c *NameChosenEvent) Valid() error {
 	if c.EventType != "ChatStartedEvent" {
 		return errors.New("Invalid event type")
 	}
@@ -22,10 +24,10 @@ func (c *ChatStartedEvent) Valid() error {
 	return nil
 }
 
-func (c *ChatStartedEvent) Type() string {
+func (c *NameChosenEvent) Type() string {
 	return c.EventType
 }
 
-func (c *ChatStartedEvent) ToBytes() ([]byte, error) {
+func (c *NameChosenEvent) ToBytes() ([]byte, error) {
 	return json.Marshal(c)
 }

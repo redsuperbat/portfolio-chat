@@ -7,6 +7,8 @@ import (
 
 type Event interface {
 	Valid() error
+	Type() string
+	ToBytes() ([]byte, error)
 }
 
 func Unmarshal(bytes []byte) (Event, error) {
@@ -32,6 +34,10 @@ func Unmarshal(bytes []byte) (Event, error) {
 
 	case "ChatMessageStoppedEvent":
 		var event ChatMessageStoppedEvent
+		return &event, json.Unmarshal(bytes, &event)
+
+	case "NameChosenEvent":
+		var event NameChosenEvent
 		return &event, json.Unmarshal(bytes, &event)
 	}
 

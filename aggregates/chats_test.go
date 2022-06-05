@@ -30,7 +30,7 @@ func TestChatsOn(t *testing.T) {
 		EventType: "ChatMessageSentEvent",
 		ChatId:    "123",
 		Content:   "Hello World",
-		Sender:    "123",
+		SenderId:  "123",
 		SentAt:    time.Now().UTC(),
 		MessageId: "123",
 	}
