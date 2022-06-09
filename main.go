@@ -50,6 +50,7 @@ var allowedEvents map[string]bool = map[string]bool{
 	"ChatMessageSentEvent":    true,
 	"ChatMessageStartedEvent": true,
 	"ChatMessageStoppedEvent": true,
+	"ChatJoinedEvent":         true,
 }
 
 func main() {
@@ -91,6 +92,18 @@ func main() {
 		return c.Status(200).JSON(chat)
 	})
 
+	app.Get("/chats/:id/members", func(c *fiber.Ctx) error {
+		id := c.Params("id")
+		chat := chats.Get(id)
+
+		if chat == nil {
+			errMsg := fmt.Sprint("Chat with id ", id, " not found")
+			return c.Status(404).JSON(errResp(404, errMsg))
+		}
+
+		return c.Status(200).JSON(chat.Members)
+	})
+
 	app.Post("/start-chat", func(c *fiber.Ctx) error {
 		var StartChatDto struct {
 			ChosenName string `json:"chosenName"`
@@ -105,13 +118,13 @@ func main() {
 			ChatId:    chatId,
 			EventType: "ChatStartedEvent",
 		}
-		nameChosenEvent := &events.NameChosenEvent{
-			ChatId:     chatId,
-			SenderId:   senderId,
-			EventType:  "NameChosenEvent",
-			ChosenName: StartChatDto.ChosenName,
+		chatJoinedEvent := &events.ChatJoinedEvent{
+			ChatId:    chatId,
+			SenderId:  senderId,
+			EventType: "ChatJoinedEvent",
+			Name:      StartChatDto.ChosenName,
 		}
-		for _, val := range []events.Event{chatStartedEvent, nameChosenEvent} {
+		for _, val := range []events.Event{chatStartedEvent, chatJoinedEvent} {
 			bytes, err := val.ToBytes()
 			if err != nil {
 				return c.SendStatus(500)
@@ -121,6 +134,35 @@ func main() {
 		return c.Status(201).JSON(&fiber.Map{
 			"chatId":   chatId,
 			"senderId": senderId,
+		})
+	})
+
+	app.Post("/join-chat", func(c *fiber.Ctx) error {
+		var JoinChatDto struct {
+			ChatId string `json:"chatId"`
+			Name   string `json:"name"`
+		}
+		if err := c.BodyParser(&JoinChatDto); err != nil {
+			return c.SendStatus(500)
+		}
+		SenderId := uuid.NewString()
+		chatJoinedEvent := &events.ChatJoinedEvent{
+			EventType: "ChatJoinedEvent",
+			ChatId:    JoinChatDto.ChatId,
+			SenderId:  SenderId,
+			JoinedAt:  time.Now(),
+			Name:      JoinChatDto.Name,
+		}
+		bytes, err := chatJoinedEvent.ToBytes()
+		if err != nil {
+			return c.SendStatus(500)
+		}
+		err = sendEvent(bytes)
+		if err != nil {
+			return c.SendStatus(500)
+		}
+		return c.Status(201).JSON(&fiber.Map{
+			"senderId": SenderId,
 		})
 	})
 
@@ -153,14 +195,14 @@ func main() {
 	})
 
 	app.Post("/start-typing", func(c *fiber.Ctx) error {
-		if err, _ := validateCommand[*events.ChatStartedEvent](c); err != nil {
+		if err, _ := validateCommand[*events.ChatMessageStartedEvent](c); err != nil {
 			return err
 		}
 		return dispatchCommand(c, sendEvent)
 	})
 
 	app.Post("/stop-typing", func(c *fiber.Ctx) error {
-		if err, _ := validateCommand[*events.ChatStartedEvent](c); err != nil {
+		if err, _ := validateCommand[*events.ChatMessageStoppedEvent](c); err != nil {
 			return err
 		}
 		return dispatchCommand(c, sendEvent)
@@ -227,6 +269,7 @@ func main() {
 					log.Println(err.Error())
 					break
 				}
+				// Checks if the message is in the current chat scope.
 				if msgMap["chatId"] != c.Params("id") {
 					continue
 				}

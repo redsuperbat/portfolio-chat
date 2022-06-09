@@ -36,8 +36,8 @@ func Unmarshal(bytes []byte) (Event, error) {
 		var event ChatMessageStoppedEvent
 		return &event, json.Unmarshal(bytes, &event)
 
-	case "NameChosenEvent":
-		var event NameChosenEvent
+	case "ChatJoinedEvent":
+		var event ChatJoinedEvent
 		return &event, json.Unmarshal(bytes, &event)
 	}
 
